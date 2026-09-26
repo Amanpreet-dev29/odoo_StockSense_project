@@ -1,35 +1,21 @@
-import { isSupabaseConfigured } from "../config/supabase.js";
-
-/**
- * Stop authentication actions until Supabase has been configured.
- */
-function requireSupabaseSetup() {
-  if (!isSupabaseConfigured()) {
-    throw new Error(
-      "Authentication is not available yet. Add your Supabase project URL and anon key first."
-    );
-  }
-
-  throw new Error(
-    "Supabase Auth client setup is the next step before using authentication."
-  );
-}
+import { supabase } from "../config/supabase.js";
 
 export const authService = {
-  /**
-   * Sign in with an email address and password.
-   */
   async signIn(email, password) {
     if (!email || !password) {
       throw new Error("Enter your email address and password.");
     }
 
-    requireSupabaseSetup();
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   },
 
-  /**
-   * Create an account with an email address and password.
-   */
   async signUp(email, password, fullName) {
     if (!email || !password) {
       throw new Error("Enter your email address and password.");
@@ -39,28 +25,52 @@ export const authService = {
       throw new Error("Enter your name.");
     }
 
-    requireSupabaseSetup();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName
+        }
+      }
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data.session) {
+      throw new Error(
+        "Account created. Please check your email to confirm your account."
+      );
+    }
   },
 
-  /**
-   * Request a password reset code for the supplied email address.
-   */
   async sendPasswordResetCode(email) {
     if (!email) {
       throw new Error("Enter your email address.");
     }
 
-    requireSupabaseSetup();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password.html`
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   },
 
-  /**
-   * Set a new password after the user has verified their reset code.
-   */
   async setNewPassword(resetCode, newPassword) {
     if (!resetCode || !newPassword) {
       throw new Error("Enter the reset code and your new password.");
     }
 
-    requireSupabaseSetup();
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 };
