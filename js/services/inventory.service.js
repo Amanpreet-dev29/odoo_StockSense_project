@@ -1,107 +1,295 @@
-import { getData } from "./data.service.js";
+import { supabase } from "../config/supabase.js";
 
 export const inventoryService = {
-  /**
-   * Return the total quantity for every product at its current location.
-   */
-  listBalances() {
-    const data = getData();
+  async listBalances() {
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select(`
+        id,
+        name,
+        sku,
+        category,
+        unit,
+        initial_stock,
+        reorder_level,
+        locations (
+          id,
+          name,
+          warehouses (
+            id,
+            name,
+            location
+          )
+        )
+      `)
+      .order("name");
 
-    return data.products.map(product => ({
-      productId: product.id,
-      productName: product.name,
-      sku: product.sku,
-      category: product.category,
-      unit: product.unit,
-      warehouse: product.warehouse,
-      location: product.location,
-      quantity: Number(product.quantity) || 0,
-      reorderLevel: Number(product.reorderLevel) || 0
-    }));
+    if (productsError) {
+      throw new Error(productsError.message);
+    }
+
+    const { data: movements, error: movementsError } = await supabase
+      .from("stock_movements")
+      .select(`
+        product_id,
+        quantity,
+        quantity_change,
+        movement_type,
+        status
+      `)
+      .eq("status", "done");
+
+    if (movementsError) {
+      throw new Error(movementsError.message);
+    }
+
+    return (products || []).map(product => {
+      const quantity = calculateProductQuantity(
+        product,
+        movements || []
+      );
+
+      const location = product.locations;
+      const warehouse = location?.warehouses;
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        category: product.category || "",
+        unit: product.unit || "Unit",
+        warehouse: warehouse?.name || "",
+        location: location?.name || "",
+        quantity,
+        reorderLevel: Number(product.reorder_level) || 0
+      };
+    });
   },
 
-  /**
-   * Find the quantity for one product.
-   */
-  getProductQuantity(productId) {
-    const data = getData();
-    const product = data.products.find(item => item.id === productId);
+  async getProductQuantity(productId) {
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select(`
+        id,
+        initial_stock
+      `)
+      .eq("id", productId)
+      .maybeSingle();
+
+    if (productError) {
+      throw new Error(productError.message);
+    }
 
     if (!product) {
       return null;
     }
 
-    return Number(product.quantity) || 0;
+    const { data: movements, error: movementsError } = await supabase
+      .from("stock_movements")
+      .select(`
+        quantity,
+        quantity_change,
+        movement_type,
+        status
+      `)
+      .eq("product_id", productId)
+      .eq("status", "done");
+
+    if (movementsError) {
+      throw new Error(movementsError.message);
+    }
+
+    return calculateQuantity(
+      Number(product.initial_stock) || 0,
+      movements || []
+    );
   },
 
-  /**
-   * Return the dashboard totals for products and stock.
-   */
-  getSummary() {
-    const data = getData();
+  async getSummary() {
+    const [
+      productsResult,
+      movementsResult,
+      receiptsResult,
+      deliveriesResult,
+      transfersResult
+    ] = await Promise.all([
+      supabase
+        .from("products")
+        .select("id, initial_stock, reorder_level"),
 
-    const totalUnits = data.products.reduce(
-      (total, product) => total + (Number(product.quantity) || 0),
+      supabase
+        .from("stock_movements")
+        .select("product_id, quantity, quantity_change, movement_type, status")
+        .eq("status", "done"),
+
+      supabase
+        .from("operations")
+        .select("id")
+        .eq("operation_type", "receipt")
+        .not("status", "in", '("done","cancelled")'),
+
+      supabase
+        .from("operations")
+        .select("id")
+        .eq("operation_type", "delivery")
+        .not("status", "in", '("done","cancelled")'),
+
+      supabase
+        .from("operations")
+        .select("id")
+        .eq("operation_type", "transfer")
+        .not("status", "in", '("done","cancelled")')
+    ]);
+
+    if (productsResult.error) {
+      throw new Error(productsResult.error.message);
+    }
+
+    if (movementsResult.error) {
+      throw new Error(movementsResult.error.message);
+    }
+
+    if (receiptsResult.error) {
+      throw new Error(receiptsResult.error.message);
+    }
+
+    if (deliveriesResult.error) {
+      throw new Error(deliveriesResult.error.message);
+    }
+
+    if (transfersResult.error) {
+      throw new Error(transfersResult.error.message);
+    }
+
+    const products = productsResult.data || [];
+    const movements = movementsResult.data || [];
+
+    const balances = products.map(product => {
+      const quantity = calculateQuantity(
+        Number(product.initial_stock) || 0,
+        movements.filter(
+          movement => movement.product_id === product.id
+        )
+      );
+
+      return {
+        ...product,
+        quantity
+      };
+    });
+
+    const totalUnits = balances.reduce(
+      (total, product) => total + product.quantity,
       0
     );
 
-    const lowStockProducts = data.products.filter(product => {
-      const quantity = Number(product.quantity) || 0;
-      const reorderLevel = Number(product.reorderLevel) || 0;
+    const lowStockProducts = balances.filter(product => {
+      const reorderLevel = Number(product.reorder_level) || 0;
 
-      return quantity > 0 && quantity <= reorderLevel;
+      return (
+        product.quantity > 0 &&
+        product.quantity <= reorderLevel
+      );
     });
 
-    const outOfStockProducts = data.products.filter(
-      product => Number(product.quantity) === 0
+    const outOfStockProducts = balances.filter(
+      product => product.quantity <= 0
     );
-
-    const pendingReceipts = countPendingOperations(data, "receipt");
-    const pendingDeliveries = countPendingOperations(data, "delivery");
-    const pendingTransfers = countPendingOperations(data, "transfer");
 
     return {
       totalUnits,
-      productCount: data.products.length,
+      productCount: products.length,
       lowStockCount: lowStockProducts.length,
       outOfStockCount: outOfStockProducts.length,
-      pendingReceipts,
-      pendingDeliveries,
-      pendingTransfers
+      pendingReceipts: receiptsResult.data?.length || 0,
+      pendingDeliveries: deliveriesResult.data?.length || 0,
+      pendingTransfers: transfersResult.data?.length || 0
     };
   },
 
-  /**
-   * Return products that are at or below their reorder level.
-   */
-  listLowStockProducts() {
-    const data = getData();
+  async listLowStockProducts() {
+    const balances = await this.listBalances();
 
-    return data.products.filter(product => {
-      const quantity = Number(product.quantity) || 0;
-      const reorderLevel = Number(product.reorderLevel) || 0;
-
-      return quantity <= reorderLevel;
+    return balances.filter(product => {
+      return product.quantity <= product.reorderLevel;
     });
   },
 
-  /**
-   * Return the stock movement ledger, newest movement first.
-   */
-  listMovements() {
-    const data = getData();
+  async listMovements() {
+    const { data, error } = await supabase
+      .from("stock_movements")
+      .select(`
+        id,
+        operation_id,
+        product_id,
+        source_warehouse_id,
+        destination_warehouse_id,
+        source_location_id,
+        destination_location_id,
+        quantity,
+        quantity_change,
+        movement_type,
+        status,
+        reference,
+        notes,
+        created_by,
+        created_at,
+        products (
+          name,
+          sku
+        ),
+        source_warehouse:source_warehouse_id (
+          name
+        ),
+        destination_warehouse:destination_warehouse_id (
+          name
+        ),
+        source_location:source_location_id (
+          name
+        ),
+        destination_location:destination_location_id (
+          name
+        )
+      `)
+      .order("created_at", { ascending: false });
 
-    return [...data.movements];
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data || [];
   }
 };
 
-function countPendingOperations(data, operationType) {
-  return data.operations.filter(operation => {
-    const isMatchingType = operation.type === operationType;
-    const isStillPending =
-      operation.status !== "done" &&
-      operation.status !== "cancelled";
+function calculateProductQuantity(product, movements) {
+  return calculateQuantity(
+    Number(product.initial_stock) || 0,
+    movements.filter(
+      movement => movement.product_id === product.id
+    )
+  );
+}
 
-    return isMatchingType && isStillPending;
-  }).length;
+function calculateQuantity(initialStock, movements) {
+  let quantity = initialStock;
+
+  for (const movement of movements) {
+    if (movement.movement_type === "receipt") {
+      quantity += Number(movement.quantity) || 0;
+    }
+
+    if (movement.movement_type === "delivery") {
+      quantity -= Number(movement.quantity) || 0;
+    }
+
+    if (movement.movement_type === "adjustment") {
+      quantity += Number(movement.quantity_change) || 0;
+    }
+
+    if (movement.movement_type === "transfer") {
+      // A transfer changes the location, not the total stock.
+    }
+  }
+
+  return Math.max(0, quantity);
 }

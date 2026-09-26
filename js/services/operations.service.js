@@ -1,8 +1,4 @@
-import { getData, saveData } from "./data.service.js";
-import {
-  createOperation as saveNewOperation,
-  completeOperation as applyOperationToStock
-} from "./data.service.js";
+import { supabase } from "../config/supabase.js";
 
 const allowedStatuses = [
   "draft",
@@ -12,143 +8,545 @@ const allowedStatuses = [
   "cancelled"
 ];
 
+const supportedTypes = [
+  "receipt",
+  "delivery",
+  "transfer",
+  "adjustment"
+];
+
 export const operationsService = {
-  /**
-   * Return all operations, newest first.
-   */
-  list(filters = {}) {
-    const data = getData();
+  async list(filters = {}) {
+    let query = supabase
+      .from("operations")
+      .select(`
+        id,
+        operation_number,
+        operation_type,
+        status,
+        product_id,
+        quantity,
+        source_warehouse_id,
+        destination_warehouse_id,
+        source_location_id,
+        destination_location_id,
+        partner_name,
+        notes,
+        created_by,
+        created_at,
+        validated_at,
+        products (
+          id,
+          name,
+          sku,
+          category,
+          unit
+        ),
+        source_warehouse:source_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        destination_warehouse:destination_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        source_location:source_location_id (
+          id,
+          name
+        ),
+        destination_location:destination_location_id (
+          id,
+          name
+        )
+      `)
+      .order("created_at", { ascending: false });
 
-    return data.operations
-      .filter(operation => {
-        const matchesType =
-          !filters.type || operation.type === filters.type;
+    if (filters.type) {
+      query = query.eq("operation_type", filters.type);
+    }
 
-        const matchesStatus =
-          !filters.status || operation.status === filters.status;
+    if (filters.status) {
+      query = query.eq("status", filters.status);
+    }
 
-        const matchesWarehouse =
-          !filters.warehouse ||
-          operation.warehouse === filters.warehouse;
+    if (filters.warehouse) {
+      query = query.or(
+        `source_warehouse_id.eq.${filters.warehouse},destination_warehouse_id.eq.${filters.warehouse}`
+      );
+    }
 
-        return matchesType && matchesStatus && matchesWarehouse;
-      })
-      .sort((first, second) => {
-        return new Date(second.createdAt) - new Date(first.createdAt);
-      });
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return (data || []).map(mapOperation);
   },
 
-  /**
-   * Find an operation by its reference number.
-   */
-  getByReference(reference) {
-    const data = getData();
+  async getByReference(reference) {
+    const { data, error } = await supabase
+      .from("operations")
+      .select(`
+        id,
+        operation_number,
+        operation_type,
+        status,
+        product_id,
+        quantity,
+        source_warehouse_id,
+        destination_warehouse_id,
+        source_location_id,
+        destination_location_id,
+        partner_name,
+        notes,
+        created_by,
+        created_at,
+        validated_at,
+        products (
+          id,
+          name,
+          sku,
+          category,
+          unit
+        ),
+        source_warehouse:source_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        destination_warehouse:destination_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        source_location:source_location_id (
+          id,
+          name
+        ),
+        destination_location:destination_location_id (
+          id,
+          name
+        )
+      `)
+      .eq("operation_number", reference)
+      .maybeSingle();
 
-    return (
-      data.operations.find(operation => operation.reference === reference) ||
-      null
-    );
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data ? mapOperation(data) : null;
   },
 
-  /**
-   * Create a new receipt, delivery, transfer, or adjustment.
-   */
-  create(operationDetails) {
+  async create(operationDetails) {
     validateOperation(operationDetails);
 
-    return saveNewOperation({
-      ...operationDetails,
-      status: operationDetails.status || "draft"
-    });
-  },
+    const product = await findProduct(operationDetails);
 
-  /**
-   * Update an operation's workflow status.
-   */
-  setStatus(reference, newStatus) {
-    if (!allowedStatuses.includes(newStatus)) {
-      throw new Error(`"${newStatus}" is not a supported operation status.`);
+    if (!product) {
+      throw new Error("The selected product could not be found.");
     }
 
-    if (newStatus === "done") {
-      const wasCompleted = applyOperationToStock(reference);
+    const warehouse = await findWarehouse(operationDetails.warehouse);
 
-      if (!wasCompleted) {
-        throw new Error("The operation could not be validated.");
+    if (!warehouse) {
+      throw new Error("The selected warehouse could not be found.");
+    }
+
+    const location = await findLocation(
+      warehouse.id,
+      operationDetails.location
+    );
+
+    if (!location) {
+      throw new Error("The selected stock location could not be found.");
+    }
+
+    let destinationWarehouse = warehouse;
+    let destinationLocation = location;
+
+    if (operationDetails.type === "transfer") {
+      const destinationWarehouseName =
+        operationDetails.destinationWarehouse?.trim() ||
+        operationDetails.warehouse.trim();
+
+      destinationWarehouse = await findWarehouse(
+        destinationWarehouseName
+      );
+
+      if (!destinationWarehouse) {
+        throw new Error("The destination warehouse could not be found.");
       }
 
-      return this.getByReference(reference);
+      destinationLocation = await findLocation(
+        destinationWarehouse.id,
+        operationDetails.destinationLocation
+      );
+
+      if (!destinationLocation) {
+        throw new Error(
+          "The destination stock location could not be found."
+        );
+      }
     }
 
-    const data = getData();
-    const operation = data.operations.find(
-      item => item.reference === reference
+    const operationNumber = await generateOperationNumber(
+      operationDetails.type
     );
 
-    if (!operation) {
-      throw new Error("Operation could not be found.");
+    const {
+      data: userData,
+      error: userError
+    } = await supabase.auth.getUser();
+
+    if (userError) {
+      throw new Error(userError.message);
     }
 
-    if (operation.status === "done") {
-      throw new Error("A completed operation cannot be changed.");
+    const userId = userData.user?.id || null;
+
+    const payload = {
+      operation_number: operationNumber,
+      operation_type: operationDetails.type,
+      status: operationDetails.status || "draft",
+      product_id: product.id,
+      quantity: Number(operationDetails.quantity),
+      source_warehouse_id:
+        operationDetails.type === "receipt"
+          ? null
+          : warehouse.id,
+      destination_warehouse_id:
+        operationDetails.type === "delivery"
+          ? null
+          : destinationWarehouse.id,
+      source_location_id:
+        operationDetails.type === "receipt"
+          ? null
+          : location.id,
+      destination_location_id:
+        operationDetails.type === "delivery"
+          ? null
+          : destinationLocation.id,
+      partner_name:
+        operationDetails.partnerName?.trim() || null,
+      notes:
+        operationDetails.notes?.trim() || null,
+      created_by: userId
+    };
+
+    const { data, error } = await supabase
+      .from("operations")
+      .insert(payload)
+      .select(`
+        id,
+        operation_number,
+        operation_type,
+        status,
+        product_id,
+        quantity,
+        source_warehouse_id,
+        destination_warehouse_id,
+        source_location_id,
+        destination_location_id,
+        partner_name,
+        notes,
+        created_by,
+        created_at,
+        validated_at,
+        products (
+          id,
+          name,
+          sku,
+          category,
+          unit
+        ),
+        source_warehouse:source_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        destination_warehouse:destination_warehouse_id (
+          id,
+          name,
+          location
+        ),
+        source_location:source_location_id (
+          id,
+          name
+        ),
+        destination_location:destination_location_id (
+          id,
+          name
+        )
+      `)
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
     }
 
-    operation.status = newStatus;
-    saveData(data);
-
-    return operation;
+    return mapOperation(data);
   },
 
-  /**
-   * Cancel an operation that has not been completed.
-   * Cancelling does not change stock.
-   */
-  cancel(reference) {
-    const data = getData();
-    const operation = data.operations.find(
-      item => item.reference === reference
-    );
+  async setStatus(reference, newStatus) {
+    if (!allowedStatuses.includes(newStatus)) {
+      throw new Error(
+        `"${newStatus}" is not a supported operation status.`
+      );
+    }
+
+    const operation = await this.getByReference(reference);
 
     if (!operation) {
       throw new Error("Operation could not be found.");
     }
 
     if (operation.status === "done") {
-      throw new Error("A completed operation cannot be cancelled.");
+      throw new Error(
+        "A completed operation cannot be changed."
+      );
     }
 
-    operation.status = "cancelled";
-    saveData(data);
+    if (operation.status === "cancelled") {
+      throw new Error(
+        "A cancelled operation cannot be changed."
+      );
+    }
 
-    return operation;
+    if (newStatus !== "done") {
+      const { data, error } = await supabase
+        .from("operations")
+        .update({
+          status: newStatus
+        })
+        .eq("id", operation.id)
+        .select(`
+          id,
+          operation_number,
+          operation_type,
+          status,
+          product_id,
+          quantity,
+          source_warehouse_id,
+          destination_warehouse_id,
+          source_location_id,
+          destination_location_id,
+          partner_name,
+          notes,
+          created_by,
+          created_at,
+          validated_at,
+          products (
+            id,
+            name,
+            sku,
+            category,
+            unit
+          )
+        `)
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      return mapOperation(data);
+    }
+
+    return completeOperationInDatabase(operation);
+  },
+
+  async cancel(reference) {
+    const operation = await this.getByReference(reference);
+
+    if (!operation) {
+      throw new Error("Operation could not be found.");
+    }
+
+    if (operation.status === "done") {
+      throw new Error(
+        "A completed operation cannot be cancelled."
+      );
+    }
+
+    if (operation.status === "cancelled") {
+      return operation;
+    }
+
+    const { data, error } = await supabase
+      .from("operations")
+      .update({
+        status: "cancelled"
+      })
+      .eq("id", operation.id)
+      .select(`
+        id,
+        operation_number,
+        operation_type,
+        status,
+        product_id,
+        quantity,
+        source_warehouse_id,
+        destination_warehouse_id,
+        source_location_id,
+        destination_location_id,
+        partner_name,
+        notes,
+        created_by,
+        created_at,
+        validated_at,
+        products (
+          id,
+          name,
+          sku,
+          category,
+          unit
+        )
+      `)
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return mapOperation(data);
   }
 };
 
-/**
- * Keep these named exports available for app.js.
- */
-export const createOperation = operationsService.create.bind(operationsService);
+export const createOperation =
+  operationsService.create.bind(operationsService);
+
 export const completeOperation = reference =>
   operationsService.setStatus(reference, "done");
 
-function validateOperation(operation) {
-  const supportedTypes = [
-    "receipt",
-    "delivery",
-    "transfer",
-    "adjustment"
-  ];
+async function completeOperationInDatabase(operation) {
+  const movementPayload = {
+    operation_id: operation.id,
+    product_id: operation.productId,
+    source_warehouse_id:
+      operation.type === "receipt"
+        ? null
+        : operation.warehouseId,
+    destination_warehouse_id:
+      operation.type === "delivery"
+        ? null
+        : operation.destinationWarehouseId,
+    source_location_id:
+      operation.type === "receipt"
+        ? null
+        : operation.locationId,
+    destination_location_id:
+      operation.type === "delivery"
+        ? null
+        : operation.destinationLocationId,
+    quantity: Number(operation.quantity),
+    quantity_change: getQuantityChange(operation),
+    movement_type: operation.type,
+    status: "done",
+    reference: operation.reference,
+    notes: operation.notes || null,
+    created_by: operation.createdBy || null
+  };
 
+  const {
+    data: existingMovement,
+    error: existingMovementError
+  } = await supabase
+    .from("stock_movements")
+    .select("id")
+    .eq("operation_id", operation.id)
+    .maybeSingle();
+
+  if (existingMovementError) {
+    throw new Error(existingMovementError.message);
+  }
+
+  if (existingMovement) {
+    throw new Error(
+      "This operation has already been applied to stock."
+    );
+  }
+
+  const { error: movementError } = await supabase
+    .from("stock_movements")
+    .insert(movementPayload);
+
+  if (movementError) {
+    throw new Error(movementError.message);
+  }
+
+  const { data, error } = await supabase
+    .from("operations")
+    .update({
+      status: "done",
+      validated_at: new Date().toISOString()
+    })
+    .eq("id", operation.id)
+    .select(`
+      id,
+      operation_number,
+      operation_type,
+      status,
+      product_id,
+      quantity,
+      source_warehouse_id,
+      destination_warehouse_id,
+      source_location_id,
+      destination_location_id,
+      partner_name,
+      notes,
+      created_by,
+      created_at,
+      validated_at,
+      products (
+        id,
+        name,
+        sku,
+        category,
+        unit
+      )
+    `)
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapOperation(data);
+}
+
+function getQuantityChange(operation) {
+  if (operation.type === "receipt") {
+    return Number(operation.quantity);
+  }
+
+  if (operation.type === "delivery") {
+    return -Number(operation.quantity);
+  }
+
+  if (operation.type === "adjustment") {
+    return Number(operation.quantity);
+  }
+
+  return 0;
+}
+
+function validateOperation(operation) {
   if (!supportedTypes.includes(operation.type)) {
     throw new Error("Choose a valid operation type.");
   }
 
-  if (!operation.productName?.trim()) {
+  if (!operation.productName?.trim() && !operation.productId) {
     throw new Error("Choose a product for this operation.");
   }
 
-  if (!Number.isFinite(Number(operation.quantity)) ||
-      Number(operation.quantity) <= 0) {
+  if (
+    !Number.isFinite(Number(operation.quantity)) ||
+    Number(operation.quantity) <= 0
+  ) {
     throw new Error("Enter a quantity greater than zero.");
   }
 
@@ -166,4 +564,119 @@ function validateOperation(operation) {
   ) {
     throw new Error("Enter the transfer destination.");
   }
+}
+
+async function findProduct(operation) {
+  if (operation.productId) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, name, sku")
+      .eq("id", operation.productId)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, name, sku")
+    .eq("name", operation.productName.trim())
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+async function findWarehouse(name) {
+  const { data, error } = await supabase
+    .from("warehouses")
+    .select("id, name, location")
+    .eq("name", name.trim())
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+async function findLocation(warehouseId, name) {
+  const { data, error } = await supabase
+    .from("locations")
+    .select("id, name, warehouse_id")
+    .eq("warehouse_id", warehouseId)
+    .eq("name", name.trim())
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+async function generateOperationNumber(type) {
+  const prefixes = {
+    receipt: "REC",
+    delivery: "DEL",
+    transfer: "TRF",
+    adjustment: "ADJ"
+  };
+
+  const prefix = prefixes[type] || "OP";
+
+  const timestamp = Date.now().toString().slice(-8);
+
+  return `${prefix}-${timestamp}`;
+}
+
+function mapOperation(operation) {
+  return {
+    id: operation.id,
+    reference: operation.operation_number,
+    operationNumber: operation.operation_number,
+    type: operation.operation_type,
+    status: operation.status,
+    productId: operation.product_id,
+    productName: operation.products?.name || "",
+    sku: operation.products?.sku || "",
+    quantity: Number(operation.quantity) || 0,
+    warehouse:
+      operation.source_warehouse?.name ||
+      operation.destination_warehouse?.name ||
+      "",
+    warehouseId:
+      operation.source_warehouse_id ||
+      operation.destination_warehouse_id ||
+      null,
+    location:
+      operation.source_location?.name ||
+      operation.destination_location?.name ||
+      "",
+    locationId:
+      operation.source_location_id ||
+      operation.destination_location_id ||
+      null,
+    destinationWarehouse:
+      operation.destination_warehouse?.name || "",
+    destinationWarehouseId:
+      operation.destination_warehouse_id || null,
+    destinationLocation:
+      operation.destination_location?.name || "",
+    destinationLocationId:
+      operation.destination_location_id || null,
+    partnerName: operation.partner_name || "",
+    notes: operation.notes || "",
+    createdBy: operation.created_by || null,
+    createdAt: operation.created_at,
+    validatedAt: operation.validated_at
+  };
 }

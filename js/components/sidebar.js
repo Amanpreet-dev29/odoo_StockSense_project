@@ -1,3 +1,5 @@
+import { supabase } from "../config/supabase.js";
+
 const navigationItems = [
   {
     id: "dashboard",
@@ -49,59 +51,115 @@ const navigationItems = [
   }
 ];
 
-/**
- * Create the StockSense sidebar.
- *
- * @param {string} activePage - The page ID, such as "dashboard" or "products".
- * @param {string} basePath - Use "../" on pages inside the pages folder.
- * @returns {string} Sidebar HTML.
- */
-export function sidebar(activePage, basePath = "") {
+export function sidebar(
+  activePage,
+  basePath = "",
+  userName = "User",
+  userRole = "Inventory manager"
+) {
   const links = navigationItems
     .map(item => {
-      const activeClass = item.id === activePage ? " active" : "";
+      const activeClass =
+        item.id === activePage ? " active" : "";
 
       return `
         <a
           class="nav-link${activeClass}"
           href="${basePath}${item.href}"
-          ${item.id === activePage ? 'aria-current="page"' : ""}
+          ${
+            item.id === activePage
+              ? 'aria-current="page"'
+              : ""
+          }
         >
-          <span class="nav-icon" aria-hidden="true">${item.icon}</span>
-          <span class="nav-text">${item.label}</span>
+          <span class="nav-icon" aria-hidden="true">
+            ${item.icon}
+          </span>
+
+          <span class="nav-text">
+            ${item.label}
+          </span>
         </a>
       `;
     })
     .join("");
 
+  const initials = userName
+    .trim()
+    .split(/\s+/)
+    .map(part => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return `
     <aside class="sidebar">
-      <a class="brand" href="${basePath}index.html" aria-label="StockSense home">
-        <span class="brand-mark" aria-hidden="true">◈</span>
-        <span class="brand-name">StockSense</span>
+
+      <a
+        class="brand"
+        href="${basePath}index.html"
+        aria-label="StockSense home"
+      >
+        <span
+          class="brand-mark"
+          aria-hidden="true"
+        >
+          ◈
+        </span>
+
+        <span class="brand-name">
+          StockSense
+        </span>
       </a>
 
-      <div class="nav-label">Workspace</div>
+      <div class="nav-label">
+        Workspace
+      </div>
 
       <nav aria-label="Main navigation">
         ${links}
       </nav>
 
       <div class="sidebar-bottom">
+
         <div class="user-chip">
-          <span class="avatar" aria-hidden="true">AM</span>
+
+          <span class="avatar" aria-hidden="true">
+            ${initials || "U"}
+          </span>
 
           <span class="user-meta">
-            <span class="user-name">Alex Morgan</span>
-            <span class="user-role">Inventory manager</span>
+
+            <span class="user-name">
+              ${userName}
+            </span>
+
+            <span class="user-role">
+              ${userRole}
+            </span>
+
           </span>
+
         </div>
 
-        <a class="nav-link" href="${basePath}login.html">
-          <span class="nav-icon" aria-hidden="true">↪</span>
-          <span class="nav-text">Sign out</span>
+        <a
+          class="nav-link"
+          href="${basePath}login.html"
+        >
+          <span
+            class="nav-icon"
+            aria-hidden="true"
+          >
+            ↪
+          </span>
+
+          <span class="nav-text">
+            Sign out
+          </span>
         </a>
+
       </div>
+
     </aside>
   `;
 }

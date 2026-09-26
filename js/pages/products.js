@@ -1,11 +1,8 @@
 import { productsService } from "../services/products.service.js";
 import { escapeHtml, formatNumber } from "../utils/format.js";
 
-/**
- * Build the products page.
- */
-export function renderProductsPage() {
-  const products = productsService.list();
+export async function renderProductsPage() {
+  const products = await productsService.list();
   const categories = [...new Set(products.map(product => product.category))];
 
   return `
@@ -72,9 +69,6 @@ export function renderProductsPage() {
   `;
 }
 
-/**
- * Attach search, category filter, and add-product events after rendering.
- */
 export function attachProductsPageEvents() {
   const searchInput = document.querySelector("#product-search");
   const categorySelect = document.querySelector("#product-category");

@@ -4,8 +4,8 @@ import { escapeHtml, formatNumber, formatStatus } from "../utils/format.js";
 /**
  * Build the delivery orders page.
  */
-export function renderDeliveriesPage() {
-  const deliveries = operationsService.list({ type: "delivery" });
+export async function renderDeliveriesPage() {
+  const deliveries = await operationsService.list({ type: "delivery" });
 
   return `
     <section class="page-heading">
@@ -69,7 +69,7 @@ export function renderDeliveriesPage() {
 }
 
 /**
- * Attach search-independent page controls after rendering.
+ * Attach page controls after rendering.
  */
 export function attachDeliveriesPageEvents() {
   document
@@ -79,16 +79,22 @@ export function attachDeliveriesPageEvents() {
   document
     .querySelector('[data-action="create-delivery"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:create-operation", {
-        detail: { type: "delivery" }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:create-operation", {
+          detail: { type: "delivery" }
+        })
+      );
     });
 
   document.querySelectorAll("[data-validate-delivery]").forEach(button => {
     button.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:validate-operation", {
-        detail: { reference: button.dataset.validateDelivery }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:validate-operation", {
+          detail: {
+            reference: button.dataset.validateDelivery
+          }
+        })
+      );
     });
   });
 }
@@ -100,26 +106,53 @@ function renderDeliveryRow(delivery) {
 
   return `
     <tr data-status="${escapeHtml(delivery.status)}">
-      <td class="mono"><strong>${escapeHtml(delivery.reference)}</strong></td>
-      <td>${escapeHtml(delivery.description || delivery.partner || "Delivery")}</td>
-      <td>${escapeHtml(delivery.productName)}</td>
-      <td>${formatNumber(delivery.quantity)}</td>
-      <td>
-        ${escapeHtml(delivery.warehouse)}
-        <span class="muted">· ${escapeHtml(delivery.location)}</span>
+      <td class="mono">
+        <strong>${escapeHtml(delivery.reference)}</strong>
       </td>
-      <td>${renderStatusBadge(delivery.status)}</td>
-      <td>${escapeHtml(delivery.createdAt || "—")}</td>
+
+      <td>
+        ${escapeHtml(
+          delivery.description ||
+          delivery.partner ||
+          "Delivery"
+        )}
+      </td>
+
+      <td>
+        ${escapeHtml(delivery.productName || "—")}
+      </td>
+
+      <td>
+        ${formatNumber(delivery.quantity)}
+      </td>
+
+      <td>
+        ${escapeHtml(delivery.warehouse || "—")}
+        <span class="muted">
+          · ${escapeHtml(delivery.location || "—")}
+        </span>
+      </td>
+
+      <td>
+        ${renderStatusBadge(delivery.status)}
+      </td>
+
+      <td>
+        ${escapeHtml(delivery.createdAt || "—")}
+      </td>
+
       <td>
         ${
           canValidate
-            ? `<button
+            ? `
+              <button
                 class="btn btn-outline"
                 type="button"
                 data-validate-delivery="${escapeHtml(delivery.reference)}"
               >
                 Validate
-              </button>`
+              </button>
+            `
             : "—"
         }
       </td>
@@ -138,17 +171,21 @@ function renderStatusBadge(status) {
 function filterDeliveries(event) {
   const selectedStatus = event.currentTarget.value;
 
-  document.querySelectorAll("#delivery-table tr[data-status]").forEach(row => {
-    row.hidden =
-      selectedStatus !== "all" &&
-      row.dataset.status !== selectedStatus;
-  });
+  document
+    .querySelectorAll("#delivery-table tr[data-status]")
+    .forEach(row => {
+      row.hidden =
+        selectedStatus !== "all" &&
+        row.dataset.status !== selectedStatus;
+    });
 }
 
 function emptyTableRow(message) {
   return `
     <tr>
-      <td colspan="8" class="empty">${message}</td>
+      <td colspan="8" class="empty">
+        ${escapeHtml(message)}
+      </td>
     </tr>
   `;
 }

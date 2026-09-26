@@ -1,19 +1,58 @@
-import { productsService } from "../services/products.service.js";
+import { supabase } from "../config/supabase.js";
 import { escapeHtml } from "../utils/format.js";
 
-/**
- * Build the warehouse and settings page.
- */
-export function renderSettingsPage() {
-  const products = productsService.list();
+export async function renderSettingsPage() {
+  const [
+    { data: warehouses, error: warehousesError },
+    { data: locations, error: locationsError },
+    { data: products, error: productsError }
+  ] = await Promise.all([
+    supabase
+      .from("warehouses")
+      .select("id, name, location")
+      .order("name"),
 
-  const warehouses = [
-    ...new Set(products.map(product => product.warehouse))
-  ];
+    supabase
+      .from("locations")
+      .select(`
+        id,
+        name,
+        warehouse_id,
+        warehouses (
+          id,
+          name
+        )
+      `)
+      .order("name"),
+
+    supabase
+      .from("products")
+      .select("id, category, initial_location_id")
+  ]);
+
+  if (warehousesError) {
+    throw new Error(warehousesError.message);
+  }
+
+  if (locationsError) {
+    throw new Error(locationsError.message);
+  }
+
+  if (productsError) {
+    throw new Error(productsError.message);
+  }
+
+  const warehouseList = warehouses || [];
+  const locationList = locations || [];
+  const productList = products || [];
 
   const categories = [
-    ...new Set(products.map(product => product.category))
-  ];
+    ...new Set(
+      productList
+        .map(product => product.category?.trim())
+        .filter(Boolean)
+    )
+  ].sort();
 
   return `
     <section class="page-heading">
@@ -24,6 +63,7 @@ export function renderSettingsPage() {
     </section>
 
     <div class="settings-grid">
+
       <section class="panel">
         <header class="panel-head">
           <h2>Warehouses</h2>
@@ -39,28 +79,76 @@ export function renderSettingsPage() {
 
         <div class="settings-list">
           ${
-            warehouses.length
-              ? warehouses.map(warehouse => {
-                  const productCount = products.filter(
-                    product => product.warehouse === warehouse
+            warehouseList.length
+              ? warehouseList.map(warehouse => {
+                  const warehouseLocations = locationList.filter(
+                    location =>
+                      location.warehouse_id === warehouse.id
+                  );
+
+                  const productCount = productList.filter(
+                    product =>
+                      warehouseLocations.some(
+                        location =>
+                          location.id === product.initial_location_id
+                      )
                   ).length;
 
                   return `
                     <article class="setting-row">
-                      <span class="warehouse-icon" aria-hidden="true">⌂</span>
+                      <span
+                        class="warehouse-icon"
+                        aria-hidden="true"
+                      >⌂</span>
 
                       <div>
-                        <strong>${escapeHtml(warehouse)}</strong>
+                        <strong>
+                          ${escapeHtml(warehouse.name)}
+                        </strong>
+
+                        ${
+                          warehouse.location
+                            ? `
+                              <p class="muted">
+                                ${escapeHtml(warehouse.location)}
+                              </p>
+                            `
+                            : ""
+                        }
+
                         <p class="muted">
                           ${productCount} tracked products
+                          · ${warehouseLocations.length} locations
                         </p>
+
+                        ${
+                          warehouseLocations.length
+                            ? `
+                              <p class="muted">
+                                Locations:
+                                ${warehouseLocations
+                                  .map(
+                                    location =>
+                                      escapeHtml(location.name)
+                                  )
+                                  .join(", ")}
+                              </p>
+                            `
+                            : ""
+                        }
                       </div>
 
-                      <span class="badge badge-done">Active</span>
+                      <span class="badge badge-done">
+                        Active
+                      </span>
                     </article>
                   `;
                 }).join("")
-              : `<p class="empty">No warehouses have been added yet.</p>`
+              : `
+                <p class="empty">
+                  No warehouses have been added yet.
+                </p>
+              `
           }
         </div>
       </section>
@@ -82,14 +170,18 @@ export function renderSettingsPage() {
           ${
             categories.length
               ? categories.map(category => {
-                  const productCount = products.filter(
-                    product => product.category === category
+                  const productCount = productList.filter(
+                    product =>
+                      product.category === category
                   ).length;
 
                   return `
                     <article class="setting-row">
                       <div>
-                        <strong>${escapeHtml(category)}</strong>
+                        <strong>
+                          ${escapeHtml(category)}
+                        </strong>
+
                         <p class="muted">
                           ${productCount} products
                         </p>
@@ -97,7 +189,11 @@ export function renderSettingsPage() {
                     </article>
                   `;
                 }).join("")
-              : `<p class="empty">No categories have been added yet.</p>`
+              : `
+                <p class="empty">
+                  No categories have been added yet.
+                </p>
+              `
           }
         </div>
       </section>
@@ -106,43 +202,65 @@ export function renderSettingsPage() {
         <header class="panel-head">
           <div>
             <h2>Low-stock alerts</h2>
+
             <p class="muted">
               Show an alert when a product reaches its reorder level.
             </p>
           </div>
 
-          <label class="switch" aria-label="Enable low-stock alerts">
-            <input type="checkbox" id="low-stock-alerts" checked>
+          <label
+            class="switch"
+            aria-label="Enable low-stock alerts"
+          >
+            <input
+              type="checkbox"
+              id="low-stock-alerts"
+              checked
+            >
+
             <span></span>
           </label>
         </header>
       </section>
+
     </div>
   `;
 }
 
-/**
- * Attach the settings page controls after rendering.
- */
 export function attachSettingsPageEvents() {
   document
     .querySelector('[data-action="add-warehouse"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:add-warehouse"));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:add-warehouse")
+      );
     });
 
   document
     .querySelector('[data-action="add-category"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:add-category"));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:add-category")
+      );
     });
 
-  document
-    .querySelector("#low-stock-alerts")
-    ?.addEventListener("change", event => {
+  const alertToggle =
+    document.querySelector("#low-stock-alerts");
+
+  if (alertToggle) {
+    const savedValue = localStorage.getItem(
+      "stocksense-low-stock-alerts"
+    );
+
+    if (savedValue !== null) {
+      alertToggle.checked = savedValue === "true";
+    }
+
+    alertToggle.addEventListener("change", event => {
       localStorage.setItem(
         "stocksense-low-stock-alerts",
         String(event.currentTarget.checked)
       );
     });
+  }
 }

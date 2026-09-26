@@ -4,8 +4,8 @@ import { escapeHtml, formatNumber, formatStatus } from "../utils/format.js";
 /**
  * Build the internal transfers page.
  */
-export function renderTransfersPage() {
-  const transfers = operationsService.list({ type: "transfer" });
+export async function renderTransfersPage() {
+  const transfers = await operationsService.list({ type: "transfer" });
 
   return `
     <section class="page-heading">
@@ -79,16 +79,22 @@ export function attachTransfersPageEvents() {
   document
     .querySelector('[data-action="create-transfer"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:create-operation", {
-        detail: { type: "transfer" }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:create-operation", {
+          detail: { type: "transfer" }
+        })
+      );
     });
 
   document.querySelectorAll("[data-validate-transfer]").forEach(button => {
     button.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:validate-operation", {
-        detail: { reference: button.dataset.validateTransfer }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:validate-operation", {
+          detail: {
+            reference: button.dataset.validateTransfer
+          }
+        })
+      );
     });
   });
 }
@@ -107,23 +113,46 @@ function renderTransferRow(transfer) {
 
   return `
     <tr data-status="${escapeHtml(transfer.status)}">
-      <td class="mono"><strong>${escapeHtml(transfer.reference)}</strong></td>
-      <td>${escapeHtml(transfer.productName)}</td>
-      <td>${formatNumber(transfer.quantity)}</td>
-      <td>${escapeHtml(source)}</td>
-      <td>${escapeHtml(destination)}</td>
-      <td>${renderStatusBadge(transfer.status)}</td>
-      <td>${escapeHtml(transfer.createdAt || "—")}</td>
+      <td class="mono">
+        <strong>${escapeHtml(transfer.reference)}</strong>
+      </td>
+
+      <td>
+        ${escapeHtml(transfer.productName || "—")}
+      </td>
+
+      <td>
+        ${formatNumber(transfer.quantity)}
+      </td>
+
+      <td>
+        ${escapeHtml(source)}
+      </td>
+
+      <td>
+        ${escapeHtml(destination)}
+      </td>
+
+      <td>
+        ${renderStatusBadge(transfer.status)}
+      </td>
+
+      <td>
+        ${escapeHtml(transfer.createdAt || "—")}
+      </td>
+
       <td>
         ${
           canValidate
-            ? `<button
+            ? `
+              <button
                 class="btn btn-outline"
                 type="button"
                 data-validate-transfer="${escapeHtml(transfer.reference)}"
               >
                 Validate
-              </button>`
+              </button>
+            `
             : "—"
         }
       </td>
@@ -142,17 +171,21 @@ function renderStatusBadge(status) {
 function filterTransfers(event) {
   const selectedStatus = event.currentTarget.value;
 
-  document.querySelectorAll("#transfer-table tr[data-status]").forEach(row => {
-    row.hidden =
-      selectedStatus !== "all" &&
-      row.dataset.status !== selectedStatus;
-  });
+  document
+    .querySelectorAll("#transfer-table tr[data-status]")
+    .forEach(row => {
+      row.hidden =
+        selectedStatus !== "all" &&
+        row.dataset.status !== selectedStatus;
+    });
 }
 
 function emptyTableRow(message) {
   return `
     <tr>
-      <td colspan="8" class="empty">${message}</td>
+      <td colspan="8" class="empty">
+        ${escapeHtml(message)}
+      </td>
     </tr>
   `;
 }

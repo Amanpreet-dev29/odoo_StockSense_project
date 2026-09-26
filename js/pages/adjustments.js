@@ -4,8 +4,8 @@ import { escapeHtml, formatNumber, formatStatus } from "../utils/format.js";
 /**
  * Build the inventory adjustments page.
  */
-export function renderAdjustmentsPage() {
-  const adjustments = operationsService.list({ type: "adjustment" });
+export async function renderAdjustmentsPage() {
+  const adjustments = await operationsService.list({ type: "adjustment" });
 
   return `
     <section class="page-heading">
@@ -79,16 +79,22 @@ export function attachAdjustmentsPageEvents() {
   document
     .querySelector('[data-action="create-adjustment"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:create-operation", {
-        detail: { type: "adjustment" }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:create-operation", {
+          detail: { type: "adjustment" }
+        })
+      );
     });
 
   document.querySelectorAll("[data-validate-adjustment]").forEach(button => {
     button.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:validate-operation", {
-        detail: { reference: button.dataset.validateAdjustment }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:validate-operation", {
+          detail: {
+            reference: button.dataset.validateAdjustment
+          }
+        })
+      );
     });
   });
 }
@@ -100,26 +106,53 @@ function renderAdjustmentRow(adjustment) {
 
   return `
     <tr data-status="${escapeHtml(adjustment.status)}">
-      <td class="mono"><strong>${escapeHtml(adjustment.reference)}</strong></td>
-      <td>${escapeHtml(adjustment.productName)}</td>
-      <td>${formatNumber(adjustment.quantity)}</td>
-      <td>
-        ${escapeHtml(adjustment.warehouse)}
-        <span class="muted">· ${escapeHtml(adjustment.location)}</span>
+      <td class="mono">
+        <strong>${escapeHtml(adjustment.reference)}</strong>
       </td>
-      <td>${escapeHtml(adjustment.description || adjustment.partner || "—")}</td>
-      <td>${renderStatusBadge(adjustment.status)}</td>
-      <td>${escapeHtml(adjustment.createdAt || "—")}</td>
+
+      <td>
+        ${escapeHtml(adjustment.productName || "—")}
+      </td>
+
+      <td>
+        ${formatNumber(adjustment.quantity)}
+      </td>
+
+      <td>
+        ${escapeHtml(adjustment.warehouse || "—")}
+        <span class="muted">
+          · ${escapeHtml(adjustment.location || "—")}
+        </span>
+      </td>
+
+      <td>
+        ${escapeHtml(
+          adjustment.description ||
+          adjustment.partner ||
+          "—"
+        )}
+      </td>
+
+      <td>
+        ${renderStatusBadge(adjustment.status)}
+      </td>
+
+      <td>
+        ${escapeHtml(adjustment.createdAt || "—")}
+      </td>
+
       <td>
         ${
           canValidate
-            ? `<button
+            ? `
+              <button
                 class="btn btn-outline"
                 type="button"
                 data-validate-adjustment="${escapeHtml(adjustment.reference)}"
               >
                 Validate
-              </button>`
+              </button>
+            `
             : "—"
         }
       </td>
@@ -138,17 +171,21 @@ function renderStatusBadge(status) {
 function filterAdjustments(event) {
   const selectedStatus = event.currentTarget.value;
 
-  document.querySelectorAll("#adjustment-table tr[data-status]").forEach(row => {
-    row.hidden =
-      selectedStatus !== "all" &&
-      row.dataset.status !== selectedStatus;
-  });
+  document
+    .querySelectorAll("#adjustment-table tr[data-status]")
+    .forEach(row => {
+      row.hidden =
+        selectedStatus !== "all" &&
+        row.dataset.status !== selectedStatus;
+    });
 }
 
 function emptyTableRow(message) {
   return `
     <tr>
-      <td colspan="8" class="empty">${message}</td>
+      <td colspan="8" class="empty">
+        ${escapeHtml(message)}
+      </td>
     </tr>
   `;
 }

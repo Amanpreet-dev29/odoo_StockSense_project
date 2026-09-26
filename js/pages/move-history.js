@@ -8,8 +8,8 @@ import {
 /**
  * Build the move history page.
  */
-export function renderMoveHistoryPage() {
-  const movements = inventoryService.listMovements();
+export async function renderMoveHistoryPage() {
+  const movements = await inventoryService.listMovements();
 
   return `
     <section class="page-heading">
@@ -18,7 +18,11 @@ export function renderMoveHistoryPage() {
         <p>Review stock changes across your warehouses and locations.</p>
       </div>
 
-      <button class="btn btn-outline" type="button" data-action="print-ledger">
+      <button
+        class="btn btn-outline"
+        type="button"
+        data-action="print-ledger"
+      >
         Print / Export
       </button>
     </section>
@@ -110,38 +114,64 @@ function renderMovementRow(movement) {
       data-search="${escapeHtml(searchText)}"
       data-type="${escapeHtml(movement.type)}"
     >
-      <td>${escapeHtml(movement.timeLabel || "—")}</td>
-      <td><strong>${escapeHtml(movement.productName)}</strong></td>
-      <td>${formatOperationType(movement.type)}</td>
+      <td>
+        ${escapeHtml(movement.timeLabel || "—")}
+      </td>
+
+      <td>
+        <strong>${escapeHtml(movement.productName || "—")}</strong>
+      </td>
+
+      <td>
+        ${formatOperationType(movement.type)}
+      </td>
+
       <td class="${isOutgoing ? "negative" : "positive"}">
         ${isOutgoing ? "" : "+"}${formatNumber(quantityChange)}
       </td>
-      <td>${escapeHtml(movement.source || "—")}</td>
-      <td>${escapeHtml(movement.destination || "—")}</td>
+
+      <td>
+        ${escapeHtml(movement.source || "—")}
+      </td>
+
+      <td>
+        ${escapeHtml(movement.destination || "—")}
+      </td>
     </tr>
   `;
 }
 
 function filterMovements() {
   const searchTerm =
-    document.querySelector("#movement-search")?.value.trim().toLowerCase() || "";
+    document
+      .querySelector("#movement-search")
+      ?.value
+      .trim()
+      .toLowerCase() || "";
 
   const selectedType =
     document.querySelector("#movement-type-filter")?.value || "all";
 
-  document.querySelectorAll("#movement-table tr[data-search]").forEach(row => {
-    const matchesSearch = row.dataset.search.includes(searchTerm);
-    const matchesType =
-      selectedType === "all" || row.dataset.type === selectedType;
+  document
+    .querySelectorAll("#movement-table tr[data-search]")
+    .forEach(row => {
+      const matchesSearch =
+        row.dataset.search.includes(searchTerm);
 
-    row.hidden = !(matchesSearch && matchesType);
-  });
+      const matchesType =
+        selectedType === "all" ||
+        row.dataset.type === selectedType;
+
+      row.hidden = !(matchesSearch && matchesType);
+    });
 }
 
 function emptyTableRow(message) {
   return `
     <tr>
-      <td colspan="6" class="empty">${message}</td>
+      <td colspan="6" class="empty">
+        ${escapeHtml(message)}
+      </td>
     </tr>
   `;
 }

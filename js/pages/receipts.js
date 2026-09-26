@@ -4,8 +4,8 @@ import { escapeHtml, formatNumber, formatStatus } from "../utils/format.js";
 /**
  * Build the receipts page.
  */
-export function renderReceiptsPage() {
-  const receipts = operationsService.list({ type: "receipt" });
+export async function renderReceiptsPage() {
+  const receipts = await operationsService.list({ type: "receipt" });
 
   return `
     <section class="page-heading">
@@ -79,16 +79,22 @@ export function attachReceiptsPageEvents() {
   document
     .querySelector('[data-action="create-receipt"]')
     ?.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:create-operation", {
-        detail: { type: "receipt" }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:create-operation", {
+          detail: { type: "receipt" }
+        })
+      );
     });
 
   document.querySelectorAll("[data-validate-receipt]").forEach(button => {
     button.addEventListener("click", () => {
-      document.dispatchEvent(new CustomEvent("stocksense:validate-operation", {
-        detail: { reference: button.dataset.validateReceipt }
-      }));
+      document.dispatchEvent(
+        new CustomEvent("stocksense:validate-operation", {
+          detail: {
+            reference: button.dataset.validateReceipt
+          }
+        })
+      );
     });
   });
 }
@@ -100,26 +106,53 @@ function renderReceiptRow(receipt) {
 
   return `
     <tr data-status="${escapeHtml(receipt.status)}">
-      <td class="mono"><strong>${escapeHtml(receipt.reference)}</strong></td>
-      <td>${escapeHtml(receipt.description || receipt.partner || "Receipt")}</td>
-      <td>${escapeHtml(receipt.productName)}</td>
-      <td>${formatNumber(receipt.quantity)}</td>
-      <td>
-        ${escapeHtml(receipt.warehouse)}
-        <span class="muted">· ${escapeHtml(receipt.location)}</span>
+      <td class="mono">
+        <strong>${escapeHtml(receipt.reference)}</strong>
       </td>
-      <td>${renderStatusBadge(receipt.status)}</td>
-      <td>${escapeHtml(receipt.createdAt || "—")}</td>
+
+      <td>
+        ${escapeHtml(
+          receipt.description ||
+          receipt.partner ||
+          "Receipt"
+        )}
+      </td>
+
+      <td>
+        ${escapeHtml(receipt.productName || "—")}
+      </td>
+
+      <td>
+        ${formatNumber(receipt.quantity)}
+      </td>
+
+      <td>
+        ${escapeHtml(receipt.warehouse || "—")}
+        <span class="muted">
+          · ${escapeHtml(receipt.location || "—")}
+        </span>
+      </td>
+
+      <td>
+        ${renderStatusBadge(receipt.status)}
+      </td>
+
+      <td>
+        ${escapeHtml(receipt.createdAt || "—")}
+      </td>
+
       <td>
         ${
           canValidate
-            ? `<button
+            ? `
+              <button
                 class="btn btn-outline"
                 type="button"
                 data-validate-receipt="${escapeHtml(receipt.reference)}"
               >
                 Validate
-              </button>`
+              </button>
+            `
             : "—"
         }
       </td>
@@ -140,17 +173,21 @@ function renderStatusBadge(status) {
 function filterReceipts(event) {
   const selectedStatus = event.currentTarget.value;
 
-  document.querySelectorAll("#receipt-table tr[data-status]").forEach(row => {
-    row.hidden =
-      selectedStatus !== "all" &&
-      row.dataset.status !== selectedStatus;
-  });
+  document
+    .querySelectorAll("#receipt-table tr[data-status]")
+    .forEach(row => {
+      row.hidden =
+        selectedStatus !== "all" &&
+        row.dataset.status !== selectedStatus;
+    });
 }
 
 function emptyTableRow(message) {
   return `
     <tr>
-      <td colspan="8" class="empty">${message}</td>
+      <td colspan="8" class="empty">
+        ${escapeHtml(message)}
+      </td>
     </tr>
   `;
 }
