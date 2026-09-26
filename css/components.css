@@ -1,0 +1,34 @@
+/* Modals */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(15, 23, 42, 0.6);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: #fff;
+    padding: 2rem;
+    border-radius: 10px;
+    width: 450px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content input, .modal-content select {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+/* Status Badges */
+.badge { padding: 0.25rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+.badge.done { background: #dcfce7; color: #15803d; }
+.badge.draft { background: #f1f5f9; color: #475569; }
+.badge.ready { background: #dbeafe; color: #1d4ed8; }
+
+/* Buttons */
+.btn-primary { background: var(--accent-blue); color: #fff; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.btn-secondary { background: #e2e8f0; color: var(--text-primary); border: none; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; }

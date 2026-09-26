@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>StockSense - Move History</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="../css/layout.css">
+    <link rel="stylesheet" href="../css/components.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="brand">📦 StockSense</div>
+            <ul class="nav-list">
+                <li class="nav-item"><a href="../index.html" class="nav-link">Dashboard</a></li>
+                <li class="nav-item"><a href="products.html" class="nav-link">Products</a></li>
+                <li class="nav-item"><a href="receipts.html" class="nav-link">Receipts</a></li>
+                <li class="nav-item"><a href="deliveries.html" class="nav-link">Delivery Orders</a></li>
+                <li class="nav-item"><a href="transfers.html" class="nav-link">Internal Transfers</a></li>
+                <li class="nav-item"><a href="adjustments.html" class="nav-link">Adjustments</a></li>
+                <li class="nav-item"><a href="move-history.html" class="nav-link active">Move History</a></li>
+            </ul>
+        </aside>
+
+        <main class="main-content">
+            <h2>Stock Movement Ledger</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Audit log for all inventory operations</p>
+
+            <section class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Operation Type</th>
+                            <th>Quantity Delta</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ledger-table-body">
+                        <!-- Loaded dynamically -->
+                    </tbody>
+                </table>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../js/config/supabase.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const { data: logs } = await supabase
+                .from('move_history')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            const tbody = document.getElementById('ledger-table-body');
+            tbody.innerHTML = '';
+
+            logs.forEach(log => {
+                const isPositive = log.quantity_changed >= 0;
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${new Date(log.created_at).toLocaleString()}</td>
+                        <td><strong>${log.operation_type}</strong></td>
+                        <td style="color: ${isPositive ? 'var(--accent-green)' : 'var(--accent-red)'}; font-weight: 700;">
+                            ${isPositive ? '+' : ''}${log.quantity_changed}
+                        </td>
+                        <td>${log.details}</td>
+                    </tr>
+                `;
+            });
+        });
+    </script>
+</body>
+</html>
